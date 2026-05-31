@@ -548,20 +548,7 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
                   SHARE TO WHATSAPP
                 </a>
 
-                {/* Highly Informative Sharing Warning Card */}
-                <div className="p-4 bg-amber-50 border-2 border-amber-500 font-bold text-[10px] text-amber-950 uppercase space-y-2 rounded-none animate-fadeIn leading-relaxed">
-                  <div className="flex items-center gap-1.5 text-amber-700 font-black">
-                    <HelpCircle className="h-4 w-4 shrink-0" />
-                    <span>⚠️ PORTAL LINK SHARING SYSTEM GUIDE</span>
-                  </div>
-                  <p className="font-semibold normal-case text-slate-800">
-                    To make sure students and parents access the portal correctly without receiving a "broken link" or Google Search error:
-                  </p>
-                  <ul className="list-disc list-inside space-y-1 normal-case text-slate-700 font-medium pl-1">
-                    <li>Do <strong className="font-bold text-red-700">NOT</strong> wrap the link inside asterisks (<code className="font-bold font-mono text-slate-950 bg-amber-100 rounded px-1 inline-block">*link*</code>) inside chat, and don't add backslashes (<code className="font-bold font-mono text-slate-950 bg-amber-100 rounded px-1 inline-block">\</code>) at the end!</li>
-                    <li><strong>Open in Address Bar directly:</strong> Parents must paste or type the link into the mobile browser's <strong className="font-bold text-slate-950">top address bar</strong> (Chrome/Safari), not into Google Search. Searching a private portal link on Google displays <span className="italic">"did not match any documents"</span> because dev portals are unindexed!</li>
-                  </ul>
-                </div>
+
               </div>
             </div>
           </div>
