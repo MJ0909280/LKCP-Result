@@ -28,6 +28,7 @@ const ADMIN_CREDS = {
 export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [initialExamParam, setInitialExamParam] = useState("");
+  const [initialTabParam, setInitialTabParam] = useState<"search" | "register">("search");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [enteredPassword, setEnteredPassword] = useState("");
   const [modalError, setModalError] = useState("");
@@ -48,12 +49,18 @@ export default function App() {
     const mode = params.get("mode") || "";
     const pass = params.get("pass") || "";
     const exam = params.get("exam") || "";
+    const tab = params.get("tab") || "";
 
     if (mode === ADMIN_CREDS.mode && pass === ADMIN_CREDS.pass) {
       setIsAdmin(true);
     }
     if (exam) {
       setInitialExamParam(exam);
+    }
+    if (tab === "register") {
+      setInitialTabParam("register");
+    } else {
+      setInitialTabParam("search");
     }
   }, []);
 
@@ -131,7 +138,7 @@ export default function App() {
         {isAdmin ? (
           <AdminPanel onSignOut={handleSignOut} />
         ) : (
-          <PublicLookup initialExamParam={initialExamParam} />
+          <PublicLookup initialExamParam={initialExamParam} initialTabParam={initialTabParam} />
         )}
       </main>
 

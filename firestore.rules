@@ -38,6 +38,26 @@ service cloud.firestore {
              data.EXAM_NAME is string && data.EXAM_NAME.size() >= 2 && data.EXAM_NAME.size() <= 64;
     }
 
+    // Pillar 2: Validation schema for Registrations
+    function isValidRegistration(data) {
+      return data.keys().hasAll([
+               'STUDENT_NAME', 'CURRENT_BELT', 'APPEARING_BELT', 'BRANCH_NAME', 
+               'COACH_NAME', 'FEES_STATUS', 'SCHOOL_NAME', 'EXAM_NAME', 
+               'REGISTRATION_DATE', 'STATUS'
+             ]) &&
+             data.keys().size() == 10 &&
+             data.STUDENT_NAME is string && data.STUDENT_NAME.size() >= 2 && data.STUDENT_NAME.size() <= 128 &&
+             data.CURRENT_BELT is string && data.CURRENT_BELT.size() <= 64 &&
+             data.APPEARING_BELT is string && data.APPEARING_BELT.size() <= 64 &&
+             data.BRANCH_NAME is string && data.BRANCH_NAME.size() <= 128 &&
+             data.COACH_NAME is string && data.COACH_NAME.size() <= 128 &&
+             data.FEES_STATUS is string && (data.FEES_STATUS == 'PAID' || data.FEES_STATUS == 'NOT PAID') &&
+             data.SCHOOL_NAME is string && data.SCHOOL_NAME.size() <= 256 &&
+             data.EXAM_NAME is string && data.EXAM_NAME.size() >= 2 && data.EXAM_NAME.size() <= 64 &&
+             data.REGISTRATION_DATE is string && data.REGISTRATION_DATE.size() >= 8 && data.REGISTRATION_DATE.size() <= 32 &&
+             data.STATUS is string && (data.STATUS == 'PENDING' || data.STATUS == 'GRADED');
+    }
+
     // Match rules for 'exams' collection
     match /exams/{examId} {
       allow read: if true;
@@ -49,6 +69,13 @@ service cloud.firestore {
     match /results/{resultId} {
       allow read, list: if true;
       allow create, update: if isValidId(resultId) && isValidResult(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Match rules for 'registrations' collection
+    match /registrations/{registrationId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(registrationId) && isValidRegistration(request.resource.data);
       allow delete: if false;
     }
   }

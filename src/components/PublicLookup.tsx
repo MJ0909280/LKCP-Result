@@ -14,16 +14,23 @@ import {
   TrendingUp,
   Sliders,
   CheckCircle2,
-  XCircle
+  XCircle,
+  HelpCircle,
+  ClipboardList
 } from "lucide-react";
 import { ExamConfig, StudentResult } from "../types";
 import { getClubLogoBase64 } from "./LogoGenerator";
 
 interface PublicLookupProps {
   initialExamParam: string;
+  initialTabParam?: "search" | "register";
 }
 
-export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
+const BELT_STRUCTURE = [
+  "WHITE", "YELLOW", "ORANGE", "GREEN", "BLUE", "PURPLE", "RED", "BROWN", "BROWN 2+1", "BROWN 3+4", "BLACK BELT"
+];
+
+export default function PublicLookup({ initialExamParam, initialTabParam }: PublicLookupProps) {
   const [exams, setExams] = useState<ExamConfig[]>([]);
   const [selectedExam, setSelectedExam] = useState("");
   const [studentName, setStudentName] = useState("");
@@ -32,6 +39,30 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [activeResult, setActiveResult] = useState<StudentResult | null>(null);
+
+  // Client-side quick cache for instant repeated searches
+  const [clientCache, setClientCache] = useState<Record<string, { found: boolean; data?: StudentResult }>>({});
+
+  // Online Registration states
+  const [activeTab, setActiveTab] = useState<"search" | "register">(initialTabParam || "search");
+
+  // Keep active tab reactive to url param shifts
+  useEffect(() => {
+    if (initialTabParam) {
+      setActiveTab(initialTabParam);
+    }
+  }, [initialTabParam]);
+  const [regStudentName, setRegStudentName] = useState("");
+  const [regCurrentBelt, setRegCurrentBelt] = useState("WHITE");
+  const [regAppearingBelt, setRegAppearingBelt] = useState("YELLOW");
+  const [regBranchName, setRegBranchName] = useState("");
+  const [regCoachName, setRegCoachName] = useState("");
+  const [regFeesStatus, setRegFeesStatus] = useState("NOT PAID");
+  const [regSchoolName, setRegSchoolName] = useState("");
+  
+  const [regLoading, setRegLoading] = useState(false);
+  const [regSuccess, setRegSuccess] = useState<string | null>(null);
+  const [regError, setRegError] = useState("");
 
   // Load available exams on mount
   useEffect(() => {
@@ -61,7 +92,7 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
     fetchExams();
   }, [initialExamParam]);
 
-  // Check student search results
+  // Handle student search results
   const handleCheckResult = async (e: React.FormEvent) => {
     e.preventDefault();
     setSearchError("");
@@ -79,6 +110,17 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
       return;
     }
 
+    const cacheKey = `${selectedExam}_${cleanId}_${cleanName}`;
+    if (clientCache[cacheKey]) {
+      const cached = clientCache[cacheKey];
+      if (cached.found && cached.data) {
+        setActiveResult(cached.data);
+      } else {
+        setSearchError("No verification matching those parameters was found. Please check spelling or ID case.");
+      }
+      return;
+    }
+
     setLoading(true);
     try {
       const url = `/api/lookupResult?exam=${encodeURIComponent(selectedExam)}&student=${encodeURIComponent(cleanName)}&id=${encodeURIComponent(cleanId)}`;
@@ -87,13 +129,70 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
 
       if (response.ok && data.found) {
         setActiveResult(data.data);
+        setClientCache(prev => ({ ...prev, [cacheKey]: { found: true, data: data.data } }));
       } else {
         setSearchError("No verification matching those parameters was found. Please check spelling or ID case.");
+        setClientCache(prev => ({ ...prev, [cacheKey]: { found: false } }));
       }
     } catch (error) {
       setSearchError("Service connection failed. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle online registration request
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError("");
+    setRegSuccess(null);
+
+    if (!selectedExam) {
+      setRegError("Please select an active examination cycle event first.");
+      return;
+    }
+    if (!regStudentName.trim()) {
+      setRegError("Student name is required.");
+      return;
+    }
+
+    setRegLoading(true);
+    try {
+      const payload = {
+        student: {
+          STUDENT_NAME: regStudentName.toUpperCase().trim(),
+          CURRENT_BELT: regCurrentBelt,
+          APPEARING_BELT: regAppearingBelt,
+          BRANCH_NAME: regBranchName.trim(),
+          COACH_NAME: regCoachName.trim(),
+          FEES_STATUS: regFeesStatus,
+          SCHOOL_NAME: regSchoolName.trim(),
+          EXAM_NAME: selectedExam,
+          REGISTRATION_DATE: new Date().toISOString().split('T')[0]
+        }
+      };
+
+      const response = await fetch("/api/registerStudent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setRegSuccess(data.registrationId);
+        // Clear input form fields
+        setRegStudentName("");
+        setRegBranchName("");
+        setRegCoachName("");
+        setRegSchoolName("");
+      } else {
+        setRegError(data.error || "Could not register candidate. Please check parameters.");
+      }
+    } catch (error) {
+      setRegError("Server connection failed. Please try again.");
+    } finally {
+      setRegLoading(false);
     }
   };
 
@@ -266,7 +365,7 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
         {/* Left Column: Form & Brand Area */}
         <section className="w-full lg:w-5/12 border-b-4 lg:border-b-0 lg:border-r-4 border-slate-900 p-8 sm:p-10 flex flex-col justify-between bg-white relative">
           <div>
-            <div className="flex items-center gap-3.5 mb-8">
+            <div className="flex items-center gap-3.5 mb-6">
               <div className="h-16 w-16 bg-white border-2 border-slate-900 flex items-center justify-center overflow-hidden shadow-[3px_3px_0px_0px_rgba(15,23,42,1)] shrink-0 p-1">
                 <img 
                   src={getClubLogoBase64()} 
@@ -276,93 +375,347 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
                 />
               </div>
               <div>
-                <h2 className="text-xl font-black mb-0.5 leading-tight uppercase font-space text-slate-900">BELT EXAM</h2>
-                <p className="text-red-700 text-[10px] font-black uppercase tracking-widest">QUARTERLY REGISTRY VERIFICATION</p>
+                <h2 className="text-xl font-black mb-0.5 leading-tight uppercase font-space text-slate-900">STUDENT PORTAL</h2>
+                <p className="text-red-700 text-[10px] font-black uppercase tracking-widest">OFFICIAL EXAM SERVICES & REGISTRATION</p>
               </div>
             </div>
 
-            <form onSubmit={handleCheckResult} className="space-y-5">
-              <div className="space-y-1.5 animate-fadeIn">
-                <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">Active exam cycle</label>
-                <select
-                  value={selectedExam}
-                  onChange={(e) => {
-                    setSelectedExam(e.target.value);
-                    setActiveResult(null);
-                    setSearchError("");
-                  }}
-                  className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black tracking-wide text-slate-900 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase cursor-pointer"
-                >
-                  <option value="">-- CHOOSE EXAMINATION --</option>
-                  {exams.map((ex) => (
-                    <option key={ex.EXAM_NAME} value={ex.EXAM_NAME}>
-                      {ex.EXAM_NAME} ({ex.EXAM_DATE})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">STUDENT FULL NAME</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="E.G. HIROSHI TANAKA"
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value.toUpperCase())}
-                  className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">EXAM ID CODE</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="LKC-4022"
-                  value={examId}
-                  onChange={(e) => setExamId(e.target.value.toUpperCase().replace(/\s+/g, ""))}
-                  className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-bold text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none font-mono"
-                />
-              </div>
-
+            {/* Custom Interactive Tab Selectors */}
+            <div className="flex border-2 border-slate-900 mb-6 font-space">
               <button
-                type="submit"
-                disabled={loading || !selectedExam}
-                className="w-full py-4 bg-slate-900 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black tracking-widest text-xs hover:text-white transition-colors uppercase cursor-pointer rounded-none border-2 border-slate-900 flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)]"
+                type="button"
+                onClick={() => setActiveTab("search")}
+                className={`flex-1 py-2.5 text-[11px] font-black tracking-widest uppercase transition-all rounded-none ${
+                  activeTab === "search"
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                }`}
               >
-                {loading ? (
-                  <span className="flex items-center gap-1">
-                    <span className="animate-spin h-3.5 w-3.5 border-2 border-white/50 border-t-white rounded-full inline-block" />
-                    SEARCHING CODES...
-                  </span>
-                ) : (
-                  <>
-                    <Search className="h-4 w-4" /> CHECK RESULT
-                  </>
-                )}
+                Check Result
               </button>
-            </form>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("register");
+                  setRegSuccess(null);
+                  setRegError("");
+                }}
+                className={`flex-1 py-2.5 text-[11px] font-black tracking-widest uppercase transition-all border-l-2 border-slate-900 rounded-none ${
+                  activeTab === "register"
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                Register Online
+              </button>
+            </div>
 
-            {searchError && (
-              <div className="mt-5 p-4 bg-red-50 border-2 border-red-600 text-red-700 text-xs font-bold uppercase flex items-start gap-2.5 rounded-none animate-shake">
-                <AlertCircle className="h-4 w-4 text-red-650 shrink-0 mt-0.5" />
-                <span>{searchError}</span>
+            {activeTab === "search" ? (
+              /* TAB 1: Search student results */
+              <form onSubmit={handleCheckResult} className="space-y-4">
+                <div className="space-y-1.5 animate-fadeIn">
+                  <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">Active exam cycle</label>
+                  <select
+                    value={selectedExam}
+                    onChange={(e) => {
+                      setSelectedExam(e.target.value);
+                      setActiveResult(null);
+                      setSearchError("");
+                    }}
+                    className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-black tracking-wide text-slate-900 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase cursor-pointer"
+                  >
+                    <option value="">-- CHOOSE EXAMINATION --</option>
+                    {exams.map((ex) => (
+                      <option key={ex.EXAM_NAME} value={ex.EXAM_NAME}>
+                        {ex.EXAM_NAME} ({ex.EXAM_DATE})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">STUDENT FULL NAME</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="E.G. HIROSHI TANAKA"
+                    value={studentName}
+                    onChange={(e) => setStudentName(e.target.value.toUpperCase())}
+                    className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-black text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">EXAM ID CODE</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="LKC-4022"
+                    value={examId}
+                    onChange={(e) => setExamId(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+                    className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-bold text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none font-mono"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !selectedExam}
+                  className="w-full py-3.5 bg-slate-900 hover:bg-red-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black tracking-widest text-[11px] hover:text-white transition-colors uppercase cursor-pointer rounded-none border-2 border-slate-900 flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.15)]"
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-1">
+                      <span className="animate-spin h-3.5 w-3.5 border-2 border-white/50 border-t-white rounded-full inline-block" />
+                      SEARCHING CODES...
+                    </span>
+                  ) : (
+                    <>
+                      <Search className="h-4 w-4" /> CHECK RESULT
+                    </>
+                  )}
+                </button>
+
+                {searchError && (
+                  <div className="mt-3 p-3.5 bg-red-50 border-2 border-red-600 text-red-700 text-xs font-bold uppercase flex items-start gap-2.5 rounded-none animate-shake">
+                    <AlertCircle className="h-4 w-4 text-red-650 shrink-0 mt-0.5" />
+                    <span>{searchError}</span>
+                  </div>
+                )}
+              </form>
+            ) : (
+              /* TAB 2: Register Online Form */
+              <div className="space-y-4 animate-fadeIn">
+                {regSuccess ? (
+                  <div className="p-5 bg-emerald-50 border-2 border-emerald-600 text-emerald-950 rounded-none space-y-3 shadow-[3px_3px_0px_0px_rgba(5,150,105,0.1)]">
+                    <div className="flex items-center gap-2 text-emerald-705 font-black">
+                      <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+                      <span className="text-xs uppercase tracking-wider font-space">ONLINE REGISTRATION LOGGED</span>
+                    </div>
+                    <p className="text-[11px] font-bold leading-relaxed uppercase text-slate-700">
+                      The online exam application has been recorded successfully!
+                    </p>
+                    <div className="p-2.5 bg-white border border-emerald-300 font-mono text-[11px] font-black break-all text-emerald-900">
+                      ID: {regSuccess}
+                    </div>
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase leading-normal">
+                      Provide this Registration identifier to your Instructor. Once graded at the exam, search your result using the Lookup Result tab with your name.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setRegSuccess(null)}
+                      className="w-full mt-2 py-2 border border-slate-900 text-[10px] text-slate-900 font-black tracking-widest bg-white hover:bg-slate-50 uppercase transition"
+                    >
+                      REGISTER ANOTHER STUDENT
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleRegisterSubmit} className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">ACTIVE EXAM CYCLE</label>
+                      <select
+                        value={selectedExam}
+                        onChange={(e) => setSelectedExam(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                        required
+                      >
+                        <option value="">-- CHOOSE EXAMINATION EVENT --</option>
+                        {exams.map((ex) => (
+                          <option key={ex.EXAM_NAME} value={ex.EXAM_NAME}>
+                            {ex.EXAM_NAME} ({ex.EXAM_DATE})
+                          </option>
+                        ))}
+                      </select>
+                      {selectedExam && (
+                        <div className="text-[10px] font-black uppercase text-slate-500 mt-1 flex justify-between items-center bg-slate-100 p-1.5 border border-slate-350">
+                          <span>📅 Scheduled Date: <strong className="text-slate-900 font-mono font-bold">{exams.find(e => e.EXAM_NAME === selectedExam)?.EXAM_DATE || "N/A"}</strong></span>
+                          {initialExamParam && selectedExam.toUpperCase() === initialExamParam.toUpperCase() && (
+                            <span className="text-emerald-700 font-black tracking-wider animate-pulse">● PRE-SELECTED</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">STUDENT WORKSPACE NAME</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="FULL NAME IN CAPITAL LETTERS"
+                        value={regStudentName}
+                        onChange={(e) => setRegStudentName(e.target.value)}
+                        className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black placeholder-slate-400 outline-none text-slate-950 uppercase"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">CURRENT RANK</label>
+                        <select
+                          value={regCurrentBelt}
+                          onChange={(e) => setRegCurrentBelt(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                        >
+                          {BELT_STRUCTURE.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">APPLYING RANK</label>
+                        <select
+                          value={regAppearingBelt}
+                          onChange={(e) => setRegAppearingBelt(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                        >
+                          {BELT_STRUCTURE.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">BRANCH NAME</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="E.G. CAMP / KOTHRUD"
+                          value={regBranchName}
+                          onChange={(e) => setRegBranchName(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black placeholder-slate-400 outline-none text-slate-950 uppercase"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">COACH NAME</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="SENSEI IN CHARGE"
+                          value={regCoachName}
+                          onChange={(e) => setRegCoachName(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black placeholder-slate-400 outline-none text-slate-950 uppercase"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black tracking-widest text-slate-500 uppercase block">FEES STATUS</label>
+                        <select
+                          value={regFeesStatus}
+                          onChange={(e) => setRegFeesStatus(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                        >
+                          <option value="PAID">PAID</option>
+                          <option value="NOT PAID">NOT PAID / PENDING</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block">SCHOOL NAME</label>
+                        <input
+                          type="text"
+                          placeholder="E.G. ST. VINCENT SCHOOL"
+                          value={regSchoolName}
+                          onChange={(e) => setRegSchoolName(e.target.value)}
+                          className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black placeholder-slate-450 outline-none text-slate-950 uppercase"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={regLoading || !selectedExam}
+                      className="w-full mt-1.5 py-3.5 bg-red-650 hover:bg-slate-900 text-white font-black tracking-widest text-[11px] transition duration-200 uppercase cursor-pointer rounded-none border-2 border-slate-900 flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.15)]"
+                    >
+                      {regLoading ? (
+                        <span className="flex items-center gap-1">
+                          <span className="animate-spin h-3.5 w-3.5 border-2 border-white/50 border-t-white rounded-full inline-block" />
+                          SUBMITTING REQUEST...
+                        </span>
+                      ) : (
+                        <>
+                          <ClipboardList className="h-4 w-4" /> SUBMIT ONLINE REGISTRATION
+                        </>
+                      )}
+                    </button>
+
+                    {regError && (
+                      <div className="mt-2 p-3 bg-red-50 border-2 border-red-600 text-red-700 text-[11px] font-bold uppercase flex items-start gap-2 rounded-none animate-shake">
+                        <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                        <span>{regError}</span>
+                      </div>
+                    )}
+                  </form>
+                )}
               </div>
             )}
           </div>
 
-          <div className="mt-8 pt-6 border-t border-slate-200">
+          <div className="mt-6 pt-5 border-t border-slate-200">
             <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-tight leading-relaxed">
-              Note: Ensure your Exam ID matches your digital karate membership card exactly. Results are permanently stored inside our primary promotion ledger database.
+              Note: Ensure your credentials match your digital karate membership profile. Results are permanently stored inside our primary promotion catalog.
             </p>
           </div>
         </section>
 
-        {/* Right Column: Result Render Area */}
+        {/* Right Column: Result Render Area / Dynamic Registration Guidelines */}
         <section className="flex-1 bg-slate-100 p-6 sm:p-10 flex items-center justify-center">
           
-          {activeResult && activeBeltStyles ? (
+          {activeTab === "register" ? (
+            /* Belt progression guidelines & visualizer when registering */
+            <div className="w-full max-w-md bg-white border-2 border-slate-900 shadow-[8px_8px_0px_0px_rgba(15,23,42,1)] p-8">
+              <h3 className="text-sm font-black text-slate-900 uppercase font-space border-b-2 border-slate-950 pb-3 mb-5 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 bg-red-700 block"></span> ONLINE REGISTRATION WORKFLOW
+              </h3>
+              <p className="text-[11px] font-black text-slate-600 uppercase tracking-wide leading-relaxed mb-6">
+                Lions Karate Club Pune utilizes an automated digital promotion system. Registering online helps Senseis track roster records securely:
+              </p>
+              
+              <div className="space-y-4">
+                <div className="flex gap-4 items-start">
+                  <span className="text-xs font-black bg-red-650 text-white w-6 h-6 flex items-center justify-center shrink-0 border border-slate-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] font-mono">1</span>
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest leading-none mb-1">Submit Application</h4>
+                    <p className="text-[9px] font-semibold text-slate-500 uppercase leading-normal">Parents or students fill core parameters including branch, school name and selected belt levels.</p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4 items-start">
+                  <span className="text-xs font-black bg-red-650 text-white w-6 h-6 flex items-center justify-center shrink-0 border border-slate-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] font-mono">2</span>
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest leading-none mb-1">Evaluation & Grading</h4>
+                    <p className="text-[9px] font-semibold text-slate-500 uppercase leading-normal">On exam day, Chief Coach compiles notes, validates fees, and approves/grades the roster manually.</p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4 items-start">
+                  <span className="text-xs font-black bg-red-650 text-white w-6 h-6 flex items-center justify-center shrink-0 border border-slate-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] font-mono">3</span>
+                  <div>
+                    <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest leading-none mb-1">Result Published</h4>
+                    <p className="text-[9px] font-semibold text-slate-500 uppercase leading-normal">Once graded, student can query with their assigned ID code instantly to claim and download the official PDF certificate.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Belt Progression Roster */}
+              <div className="mt-8 border-t-2 border-slate-100 pt-6">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">OFFICIAL RANK SEQUENCES</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {BELT_STRUCTURE.map((b) => {
+                    const style = getBeltColorStyle(b);
+                    return (
+                      <span key={b} className={`text-[8px] font-black px-2 py-1 uppercase border border-slate-900/60 shadow-[1px_1px_0px_0px_rgba(0,0,0,0.1)] ${style.bg}`}>
+                        {b}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : activeResult && activeBeltStyles ? (
             /* Result Card conforming to exact Geometric Balance certificate guidelines */
             <div className="w-full max-w-lg bg-white border-2 border-slate-900 shadow-[10px_10px_0px_0px_rgba(15,23,42,1)] flex flex-col relative rounded-none animate-slideUp">
               
@@ -436,7 +789,7 @@ export default function PublicLookup({ initialExamParam }: PublicLookupProps) {
           ) : (
             /* Standby Placeholder block */
             <div className="text-center p-8 border-4 border-dashed border-slate-350 bg-white/70 w-full max-w-sm flex flex-col items-center shadow-[4px_4px_0px_0px_rgba(15,23,42,0.05)]">
-              <div className="w-14 h-14 bg-red-700 flex items-center justify-center rotate-45 mb-6 border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,15)]">
+              <div className="w-14 h-14 bg-red-700 flex items-center justify-center rotate-45 mb-6 border-2 border-slate-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.15)]">
                 <Award className="h-5 w-5 text-white -rotate-45" />
               </div>
               <h3 className="text-xs font-black tracking-widest uppercase text-slate-900 mb-1.5 font-space">VERIFICATION ACCESS</h3>

@@ -72,6 +72,68 @@
         "EXAM_DATE",
         "EXAM_NAME"
       ]
+    },
+    "Registration": {
+      "title": "Registration",
+      "description": "Student online belt exam registration details",
+      "type": "object",
+      "properties": {
+        "STUDENT_NAME": {
+          "type": "string",
+          "description": "Full capitalized name of the candidate"
+        },
+        "CURRENT_BELT": {
+          "type": "string",
+          "description": "Current rank of the standard karate roster color system"
+        },
+        "APPEARING_BELT": {
+          "type": "string",
+          "description": "Next rank color level status target the student is appearing for"
+        },
+        "BRANCH_NAME": {
+          "type": "string",
+          "description": "Dojo location/branch branch name"
+        },
+        "COACH_NAME": {
+          "type": "string",
+          "description": "The sensei/coach in charge"
+        },
+        "FEES_STATUS": {
+          "type": "string",
+          "enum": ["PAID", "NOT PAID"],
+          "description": "Financial verification status"
+        },
+        "SCHOOL_NAME": {
+          "type": "string",
+          "description": "The academic school the student attends"
+        },
+        "EXAM_NAME": {
+          "type": "string",
+          "description": "The linked exam cycle category target"
+        },
+        "REGISTRATION_DATE": {
+          "type": "string",
+          "format": "date",
+          "description": "The exact date of online form request submit"
+        },
+        "STATUS": {
+          "type": "string",
+          "enum": ["PENDING", "GRADED"],
+          "description": "Administrative audit workflow status"
+        }
+      },
+      "required": [
+        "STUDENT_NAME",
+        "CURRENT_BELT",
+        "APPEARING_BELT",
+        "BRANCH_NAME",
+        "COACH_NAME",
+        "FEES_STATUS",
+        "SCHOOL_NAME",
+        "EXAM_NAME",
+        "REGISTRATION_DATE",
+        "STATUS"
+      ]
     }
   },
   "firestore": {
@@ -82,6 +144,10 @@
     "results": {
       "schema": "StudentResult",
       "description": "Detailed exam evaluation log entries for students cataloged by unique exam-ids and student names"
+    },
+    "registrations": {
+      "schema": "Registration",
+      "description": "Online student registration forms for pending belt examinations awaiting evaluation from administrative coaches"
     }
   }
 }

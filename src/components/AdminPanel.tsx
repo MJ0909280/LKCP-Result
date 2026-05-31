@@ -12,7 +12,10 @@ import {
   Terminal,
   Grid,
   Share2,
-  MessageSquare
+  MessageSquare,
+  ClipboardList,
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react";
 import { ExamConfig, StudentResult } from "../types";
 import { getClubLogoBase64 } from "./LogoGenerator";
@@ -22,6 +25,9 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ onSignOut }: AdminPanelProps) {
+  // Database status state
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; mode: string; statusText: string } | null>(null);
+
   // Exam creation states
   const [newExamDate, setNewExamDate] = useState("");
   const [newExamYear, setNewExamYear] = useState("2026");
@@ -47,13 +53,54 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
   const [linkExam, setLinkExam] = useState("");
   const [generatedLink, setGeneratedLink] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
+  const [linkType, setLinkType] = useState<"search" | "register">("search");
 
   // WhatsApp sharer states
   const [waExam, setWaExam] = useState("");
   const [waStudentName, setWaStudentName] = useState("");
   const [waStudentId, setWaStudentId] = useState("");
   const [waMessageType, setWaMessageType] = useState<"universal" | "individual">("universal");
+  const [waMode, setWaMode] = useState<"results" | "register">("results");
   const [waClipboardSuccess, setWaClipboardSuccess] = useState(false);
+
+  // Administration Tab System
+  const [activeAdminTab, setActiveAdminTab] = useState<"manual" | "registry">("manual");
+  const [registrations, setRegistrations] = useState<any[]>([]);
+  const [regListLoading, setRegListLoading] = useState(false);
+
+  // Selected registration for active grading workflow
+  const [selectedRegForGrading, setSelectedRegForGrading] = useState<any | null>(null);
+  const [gradeExamId, setGradeExamId] = useState("");
+  const [gradeAchievedBelt, setGradeAchievedBelt] = useState("");
+  const [gradeRate, setGradeRate] = useState("");
+  const [gradeVerdict, setGradeVerdict] = useState<"PASS" | "FAIL font-bold">("PASS");
+  const [gradeCongratsMsg, setGradeCongratsMsg] = useState("");
+  const [gradeSubmitLoading, setGradeSubmitLoading] = useState(false);
+  const [gradeError, setGradeError] = useState("");
+
+  const BELT_STRUCTURE = [
+    "WHITE", "YELLOW", "ORANGE", "GREEN", "BLUE", "PURPLE", "RED", "BROWN", "BROWN 2+1", "BROWN 3+4", "BLACK BELT"
+  ];
+
+  // Load registrations from DB
+  const fetchRegistrations = async () => {
+    setRegListLoading(true);
+    try {
+      const response = await fetch("/api/getRegistrations");
+      if (response.ok) {
+        const data = await response.json();
+        // Sort by date descending
+        data.sort((a: any, b: any) => {
+          return String(b.REGISTRATION_DATE || "").localeCompare(String(a.REGISTRATION_DATE || ""));
+        });
+        setRegistrations(data);
+      }
+    } catch (error) {
+      console.error("Failed to load registrations", error);
+    } finally {
+      setRegListLoading(false);
+    }
+  };
 
   // Generate WhatsApp message string dynamically
   const getWhatsAppMessageText = () => {
@@ -67,10 +114,20 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
       ? "https://ais-pre-v7edj3kbk73xoblxzmtdoi-683048240716.asia-southeast1.run.app"
       : window.location.origin;
 
-    const portalUrl = generatedLink && waExam === linkExam
-      ? generatedLink 
-      : `${defaultOrigin}/?exam=${examCode}`;
+    // Use selected exam and append the correct tab path
+    let portalUrl = "";
+    if (waMode === "register") {
+      portalUrl = `${defaultOrigin}/?exam=${encodeURIComponent(examCode)}&tab=register`;
+    } else {
+      portalUrl = generatedLink && waExam === linkExam
+        ? generatedLink 
+        : `${defaultOrigin}/?exam=${encodeURIComponent(examCode)}&tab=search`;
+    }
     
+    if (waMode === "register") {
+      return `🥋 *LIONS KARATE CLUB PUNE* 🥋\n\nDear Parents & Students,\n\nWe are pleased to open online pre-registration and student roster registration for our upcoming *Belt Examination ${examCode}*! 🏆🎖️\n\n📌 *How to fill out your details online:*\n1️⃣ Tap the direct online register link below:\n\n${portalUrl}\n\nNote: The target examination cycle will be predefined and prefilled on your form!\n\n2️⃣ Supply the requested student details (Student Name, Current Rank, Applying Rank, Dojo Branch, Coach Name, School name, etc.).\n\n3️⃣ Submit the registration form! Hand over the printed or noted Registration ID to your Sensei. Results and digital certificates can be queried instantly on this portal after evaluation.\n\nOSS! 🙏🥋🔥`;
+    }
+
     if (waMessageType === "universal") {
       return `🥋 *LIONS KARATE CLUB PUNE* 🥋\n\nDear Parents & Students,\n\nWe are pleased to announce that the official results for the *Belt Examination ${examCode}* are now officially live on the portal! 🏆🎖️\n\n📌 *How to instantly check your result:*\n1️⃣ Tap the direct portal link below (type it exactly into your browser address bar as shown, with no extra characters/backslashes/asterisks):\n\n${portalUrl}\n\n2️⃣ Enter student credentials:\n• Select Exam: *${examCode}*\n• Enter exact registered Student Name\n• Enter your Student ID (e.g., LKC01)\n\n3️⃣ View results and download your formal PDF digital certificate!\n\nOSS! 🙏🥋🔥`;
     } else {
@@ -80,9 +137,25 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
     }
   };
 
-  // Load exams on mount
+  const fetchDbStatus = async () => {
+    try {
+      const res = await fetch("/api/dbStatus");
+      if (res.ok) {
+        const data = await res.json();
+        setDbStatus(data);
+      } else {
+        setDbStatus({ connected: false, mode: "offline", statusText: "API backend server unreachable" });
+      }
+    } catch (_) {
+      setDbStatus({ connected: false, mode: "offline", statusText: "Database connection failed" });
+    }
+  };
+
+  // Load exams and registrations on mount
   useEffect(() => {
     fetchExams();
+    fetchRegistrations();
+    fetchDbStatus();
   }, []);
 
   // Derive target registry exam name automatically whenever date or year changes
@@ -224,13 +297,76 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
           targetUrl = targetUrl.replace(/https?:\/\/[^\/]+/, cleanBase);
         }
       }
+
+      // Append selected tab path option
+      if (linkType === "register") {
+        targetUrl = `${targetUrl}&tab=register`;
+      } else {
+        targetUrl = `${targetUrl}&tab=search`;
+      }
+
       setGeneratedLink(targetUrl);
     } catch (error) {
       console.error(error);
     }
   };
 
+  // Initiate grading workflow on registered record helper
+  const handleStartGrading = (reg: any) => {
+    setSelectedRegForGrading(reg);
+    // Presets grading form defaults
+    setGradeExamId("");
+    setGradeAchievedBelt(reg.APPEARING_BELT);
+    setGradeRate("EXCELLENT");
+    setGradeVerdict("PASS");
+    setGradeCongratsMsg("CONGRATULATIONS ON PASSING! OUTSTANDING FORM IN KATA BASICS.");
+    setGradeError("");
+  };
 
+  // Grade registration submission and push result
+  const handlePublishRegGrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGradeError("");
+    if (!selectedRegForGrading) return;
+    if (!gradeExamId.trim()) {
+      setGradeError("Assigned Exam ID credential is required.");
+      return;
+    }
+
+    setGradeSubmitLoading(true);
+    try {
+      const payload = {
+        registrationId: selectedRegForGrading.id,
+        examId: gradeExamId.toUpperCase().trim(),
+        grade: gradeRate.toUpperCase().trim(),
+        result: gradeVerdict.includes("PASS") ? "PASS" : "FAIL",
+        achievedBelt: gradeAchievedBelt.toUpperCase().trim(),
+        congratulationMsg: gradeCongratsMsg.toUpperCase().trim()
+      };
+
+      const response = await fetch("/api/gradeRegistration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setSelectedRegForGrading(null);
+        await fetchRegistrations();
+        setStudentStatus({
+          success: true,
+          message: `Roster candidate "${data.studentName}" graded successfully! Official digital certificate published with exam ID "${data.examId}".`
+        });
+      } else {
+        setGradeError(data.error || "Failed to publish exam grade. ID may already exist.");
+      }
+    } catch (error) {
+      setGradeError("Failed to communicate with registrar. Check connection.");
+    } finally {
+      setGradeSubmitLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-4 md:px-8 py-10 animate-fadeIn text-slate-900">
@@ -246,6 +382,25 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
           <h2 className="text-2xl font-black uppercase tracking-tight text-slate-950 font-space">
             Dojo Belt Examiner Console
           </h2>
+          <div className="mt-2 flex items-center gap-2">
+            {dbStatus ? (
+              dbStatus.connected ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-emerald-50 border border-emerald-600 text-emerald-800 rounded-none">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                  {dbStatus.statusText}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-amber-50 border border-amber-600 text-amber-800 rounded-none">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-605" />
+                  Fallback Mode Active
+                </span>
+              )
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider bg-slate-100 border border-slate-450 text-slate-550 rounded-none">
+                Checking Database Connection...
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -321,12 +476,20 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                  Derived Sheet target info (Auto)
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                  Exam Code / Sheet Name (Customizable)
                 </label>
-                <div className="w-full bg-slate-100 border-2 border-dashed border-slate-900 p-3 text-xs font-mono font-bold text-slate-800 break-all">
-                  {newExamName ? `${newExamName} (DATE: ${newExamDate})` : "CHOOSE EXAM DATE ABOVE"}
-                </div>
+                <input
+                  type="text"
+                  required
+                  placeholder="E.G. MAY2026"
+                  value={newExamName}
+                  onChange={(e) => setNewExamName(e.target.value.toUpperCase().replace(/\s+/g, "").trim())}
+                  className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black font-mono text-slate-950 outline-none focus:bg-white focus:border-red-650 transition rounded-none"
+                />
+                <p className="text-[9px] text-slate-500 font-bold mt-1.5 uppercase leading-normal">
+                  Auto-calculated from date as <strong>{newExamName || "N/A"}</strong>, but you can type any code manually here.
+                </p>
               </div>
 
               <button
@@ -382,6 +545,38 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                  Link Destination Tab Page
+                </label>
+                <div className="flex gap-2 p-1 bg-slate-100 border-2 border-slate-900">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkType("search");
+                      setGeneratedLink("");
+                    }}
+                    className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                      linkType === "search" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
+                    }`}
+                  >
+                    Result Lookup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLinkType("register");
+                      setGeneratedLink("");
+                    }}
+                    className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                      linkType === "register" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
+                    }`}
+                  >
+                    Online Register Form
+                  </button>
+                </div>
+              </div>
+
               <button
                 onClick={handleGenerateLink}
                 disabled={!linkExam}
@@ -391,7 +586,7 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
               </button>
 
               {generatedLink && (
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 space-y-2 text-slate-900">
                   <div className="p-3 bg-slate-50 border-2 border-slate-900 rounded-none text-xs font-mono font-bold break-all text-slate-800">
                     {generatedLink}
                   </div>
@@ -420,7 +615,7 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
             </div>
           </div>
 
-          {/* 3. WhatsApp Message & Share Generator */}
+          {/* WhatsApp Message & Share Generator */}
           <div className="bg-white border-2 border-slate-900 p-6 shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] rounded-none">
             <div className="flex items-center gap-2.5 mb-5 pb-3 border-b-2 border-slate-900">
               <Share2 className="text-emerald-700 h-5 w-5" />
@@ -432,29 +627,57 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
             <div className="space-y-4 text-slate-900">
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                  Message Scope / Target
+                  WhatsApp Message Purpose
                 </label>
                 <div className="flex gap-2 p-1 bg-slate-100 border-2 border-slate-900">
                   <button
                     type="button"
-                    onClick={() => setWaMessageType("universal")}
+                    onClick={() => setWaMode("results")}
                     className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-                      waMessageType === "universal" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
+                      waMode === "results" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
                     }`}
                   >
-                    All Students
+                    Publish Results
                   </button>
                   <button
                     type="button"
-                    onClick={() => setWaMessageType("individual")}
+                    onClick={() => setWaMode("register")}
                     className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
-                      waMessageType === "individual" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
+                      waMode === "register" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
                     }`}
                   >
-                    Single Student
+                    Invite Registrations
                   </button>
                 </div>
               </div>
+
+              {waMode === "results" && (
+                <div className="animate-fadeIn">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                    Message Scope / Target
+                  </label>
+                  <div className="flex gap-2 p-1 bg-slate-100 border-2 border-slate-900">
+                    <button
+                      type="button"
+                      onClick={() => setWaMessageType("universal")}
+                      className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                        waMessageType === "universal" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
+                      }`}
+                    >
+                      All Students
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWaMessageType("individual")}
+                      className={`flex-1 py-1 text-[9px] font-black uppercase tracking-wider transition-colors cursor-pointer ${
+                        waMessageType === "individual" ? "bg-slate-900 text-white" : "bg-transparent text-slate-700"
+                      }`}
+                    >
+                      Single Student
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
@@ -468,13 +691,13 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
                   <option value="">-- DEFAULT / ACTIVE --</option>
                   {exams.map((ex) => (
                     <option key={ex.EXAM_NAME} value={ex.EXAM_NAME}>
-                      {ex.EXAM_NAME} ({(ex.EXAM_DATE)})
+                      {ex.EXAM_NAME} ({ex.EXAM_DATE})
                     </option>
                   ))}
                 </select>
               </div>
 
-              {waMessageType === "individual" && (
+              {waMode === "results" && waMessageType === "individual" && (
                 <div className="grid grid-cols-2 gap-2 animate-fadeIn">
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
@@ -547,185 +770,464 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
                   <MessageSquare className="h-4 w-4 fill-white shrink-0" />
                   SHARE TO WHATSAPP
                 </a>
-
-
               </div>
             </div>
           </div>
         </div>
 
-        {/* Right Side: Add Student Result Form (Takes more space) */}
+        {/* Right Side Columns with tab layout */}
         <div className="lg:col-span-2 space-y-8">
-          <div className="bg-white border-2 border-slate-900 p-6 shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] rounded-none">
-            <div className="flex items-center gap-2.5 mb-5 pb-3 border-b-2 border-slate-900">
-              <UserPlus className="text-red-700 h-5 w-5" />
-              <h3 className="font-black text-xs tracking-widest text-slate-950 uppercase font-space">
-                3. Add Student Performance Record
-              </h3>
-            </div>
-
-            <form onSubmit={handleAddStudent} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    Target Examination Folder
-                  </label>
-                  <select
-                    value={selectedExam}
-                    onChange={(e) => handleExamChangeForStudent(e.target.value)}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase cursor-pointer"
-                  >
-                    <option value="">-- SELECT EXAM SOURCE --</option>
-                    {exams.map((ex) => (
-                      <option key={ex.EXAM_NAME} value={ex.EXAM_NAME}>
-                        {ex.EXAM_NAME}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    Exam Date
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={resultDate}
-                    onChange={(e) => setResultDate(e.target.value)}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 outline-none focus:bg-white focus:border-red-650 transition rounded-none font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    student name <span className="text-red-700 lowercase font-bold">[auto-uppercase]</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="E.G. LIAM JIRO"
-                    value={studentName}
-                    onChange={(e) => setStudentName(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    exam ID <span className="text-red-705 lowercase font-bold">[e.g. LKC01]</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="E.G. LKC01"
-                    value={examId}
-                    onChange={(e) => setExamId(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    current belt rank
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="E.G. WHITE BELT"
-                    value={currentBelt}
-                    onChange={(e) => setCurrentBelt(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-bold text-slate-950 placeholder-slate-400 focus:bg-white rounded-none uppercase outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    achieved belt rank
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="E.G. YELLOW BELT"
-                    value={achievedBelt}
-                    onChange={(e) => setAchievedBelt(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-bold text-slate-950 placeholder-slate-400 focus:bg-white rounded-none uppercase outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    Evaluation Grade
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="E.G. A+, EXCELLENT"
-                    value={grade}
-                    onChange={(e) => setGrade(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-black text-slate-950 placeholder-slate-400 focus:bg-white rounded-none uppercase outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-1">
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    Verdict status
-                  </label>
-                  <select
-                    value={verdict}
-                    onChange={(e) => setVerdict(e.target.value as "PASS" | "FAIL")}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs font-black text-slate-950 outline-none focus:bg-white rounded-none transition cursor-pointer"
-                  >
-                    <option value="PASS">PASS</option>
-                    <option value="FAIL">FAIL</option>
-                  </select>
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
-                    congratulation message / comments
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="E.G. KIHON DEPTHS AND SHARP TECHNIQUE!"
-                    value={congratsMsg}
-                    onChange={(e) => setCongratsMsg(e.target.value.toUpperCase())}
-                    className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs font-bold text-slate-950 placeholder-slate-400 focus:bg-white rounded-none uppercase outline-none"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={studentLoading}
-                className="w-full mt-2 py-3 bg-slate-900 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black tracking-widest text-xs uppercase cursor-pointer rounded-none border-2 border-slate-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.1)] transition-colors"
-              >
-                {studentLoading ? "APPENDING LOG RECORD..." : "APPEND STUDENT RESULT ROW"}
-              </button>
-            </form>
-
-            {studentStatus && (
-              <div
-                className={`mt-4 p-4 border-2 text-xs font-bold uppercase rounded-none animate-fadeIn ${
-                  studentStatus.success
-                    ? "bg-emerald-50 border-emerald-600 text-emerald-800"
-                    : "bg-red-50 border-red-600 text-red-700"
-                }`}
-              >
-                {studentStatus.message}
-              </div>
-            )}
+          <div className="bg-slate-100 border-2 border-slate-900 p-1 flex font-space shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] rounded-none">
+            <button
+              onClick={() => {
+                setActiveAdminTab("manual");
+                setSelectedRegForGrading(null);
+              }}
+              className={`flex-1 py-1.5 md:py-3 text-[10px] md:text-xs font-black tracking-widest uppercase transition rounded-none ${
+                activeAdminTab === "manual"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Manual Result Entry
+            </button>
+            <button
+              onClick={() => {
+                setActiveAdminTab("registry");
+                fetchRegistrations();
+              }}
+              className={`flex-1 py-1.5 md:py-3 text-[10px] md:text-xs font-black tracking-widest uppercase transition rounded-none border-l-2 border-slate-900 ${
+                activeAdminTab === "registry"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Online Candidates Ledger ({registrations.filter(r => r.STATUS !== "GRADED").length})
+            </button>
           </div>
+
+          {activeAdminTab === "manual" ? (
+            /* TAB A: Manual performance Row Record */
+            <div className="bg-white border-2 border-slate-900 p-6 shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] rounded-none">
+              <div className="flex items-center gap-2.5 mb-5 pb-3 border-b-2 border-slate-900">
+                <UserPlus className="text-red-700 h-5 w-5" />
+                <h3 className="font-black text-xs tracking-widest text-slate-950 uppercase font-space">
+                  A. Add Student Performance Record (Manual backup)
+                </h3>
+              </div>
+
+              <form onSubmit={handleAddStudent} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      Target Examination Folder
+                    </label>
+                    <select
+                      value={selectedExam}
+                      onChange={(e) => handleExamChangeForStudent(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase cursor-pointer"
+                    >
+                      <option value="">-- SELECT EXAM SOURCE --</option>
+                      {exams.map((ex) => (
+                        <option key={ex.EXAM_NAME} value={ex.EXAM_NAME}>
+                          {ex.EXAM_NAME}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      Exam Date
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={resultDate}
+                      onChange={(e) => setResultDate(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 outline-none focus:bg-white focus:border-red-650 transition rounded-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      student name <span className="text-red-700 lowercase font-bold">[auto-uppercase]</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="E.G. LIAM JIRO"
+                      value={studentName}
+                      onChange={(e) => setStudentName(e.target.value.toUpperCase())}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none uppercase"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      exam ID <span className="text-red-705 lowercase font-bold">[e.g. LKC01]</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="E.G. LKC01"
+                      value={examId}
+                      onChange={(e) => setExamId(e.target.value.toUpperCase())}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs sm:text-sm font-black text-slate-950 placeholder-slate-400 outline-none focus:bg-white focus:border-red-650 transition rounded-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      current belt rank
+                    </label>
+                    <select
+                      value={currentBelt}
+                      onChange={(e) => setCurrentBelt(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                    >
+                      <option value="">-- CHOOSE RANK --</option>
+                      {BELT_STRUCTURE.map((b) => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      achieved belt rank
+                    </label>
+                    <select
+                      value={achievedBelt}
+                      onChange={(e) => setAchievedBelt(e.target.value)}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-2 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                    >
+                      <option value="">-- CHOOSE RANK --</option>
+                      {BELT_STRUCTURE.map((b) => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      Evaluation Grade
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="E.G. A+, EXCELLENT"
+                      value={grade}
+                      onChange={(e) => setGrade(e.target.value.toUpperCase())}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-2.5 text-xs font-black text-slate-950 placeholder-slate-400 focus:bg-white rounded-none uppercase outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-1">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      Verdict status
+                    </label>
+                    <select
+                      value={verdict}
+                      onChange={(e) => setVerdict(e.target.value as "PASS" | "FAIL")}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs font-black text-slate-950 outline-none focus:bg-white rounded-none transition cursor-pointer"
+                    >
+                      <option value="PASS">PASS</option>
+                      <option value="FAIL">FAIL</option>
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                      congratulation message / comments
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="E.G. KIHON DEPTHS AND SHARP TECHNIQUE!"
+                      value={congratsMsg}
+                      onChange={(e) => setCongratsMsg(e.target.value.toUpperCase())}
+                      className="w-full bg-slate-50 border-2 border-slate-900 p-3 text-xs font-bold text-slate-950 placeholder-slate-400 focus:bg-white rounded-none uppercase outline-none"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={studentLoading}
+                  className="w-full mt-2 py-3 bg-slate-900 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-black tracking-widest text-xs uppercase cursor-pointer rounded-none border-2 border-slate-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.1)] transition-colors"
+                >
+                  {studentLoading ? "APPENDING LOG RECORD..." : "APPEND STUDENT RESULT ROW"}
+                </button>
+              </form>
+            </div>
+          ) : (
+            /* TAB B: Pending Online Applications list & Grading workflow */
+            <div className="space-y-6">
+              
+              {/* Grading Box visible inline when actively clicked */}
+              {selectedRegForGrading && (
+                <div className="bg-slate-950 border-4 border-red-700 text-white p-6 shadow-[8px_8px_0px_0px_rgba(15,23,42,1)] rounded-none space-y-4 animate-slideDown">
+                  <div className="flex justify-between items-center border-b border-slate-700 pb-3 mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 bg-red-650 block animate-pulse"></span>
+                      <h4 className="text-xs font-black tracking-widest text-red-500 uppercase font-space">
+                        GRADING CANDIDATE: {selectedRegForGrading.STUDENT_NAME}
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRegForGrading(null)}
+                      className="text-stone-400 hover:text-white font-black text-[10px] uppercase font-mono tracking-widest cursor-pointer hover:underline"
+                    >
+                      [ CLOSE PANEL ]
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-bold p-3 bg-slate-900/60 border border-slate-800 text-stone-200 uppercase tracking-wide">
+                    <div>
+                      <span className="text-[9px] text-slate-500 block">CURRENT RANK</span>
+                      <span className="font-extrabold">{selectedRegForGrading.CURRENT_BELT}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 block">APPLYING LEVEL</span>
+                      <span className="text-amber-400 font-extrabold">{selectedRegForGrading.APPEARING_BELT}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 block">BRANCH / DOJO</span>
+                      <span>{selectedRegForGrading.BRANCH_NAME}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 block">SCHOOL NAME</span>
+                      <span className="truncate block">{selectedRegForGrading.SCHOOL_NAME || "NONE"}</span>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handlePublishRegGrade} className="space-y-4 text-slate-950 pt-2 font-sans">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1.5 font-space">
+                          Assign Exam ID Numbers <span className="text-red-500 text-xs font-bold lowercase">* required</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="ASSIGN MANUAL CODE CARD, REGULAR E.G. LKC01"
+                          value={gradeExamId}
+                          onChange={(e) => setGradeExamId(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+                          className="w-full bg-white border-2 border-slate-950 p-2.5 text-xs font-bold text-slate-900 placeholder-slate-400 outline-none uppercase font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1.5 font-space">
+                          Promoted Belt (Achieved belt)
+                        </label>
+                        <select
+                          value={gradeAchievedBelt}
+                          onChange={(e) => setGradeAchievedBelt(e.target.value)}
+                          className="w-full bg-white border-2 border-slate-950 p-2.5 text-xs font-black text-slate-900 outline-none rounded-none uppercase cursor-pointer"
+                        >
+                          {BELT_STRUCTURE.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1.5 font-space">
+                          Evaluation Grade Roster
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="E.G. A+, EXCELLENT"
+                          value={gradeRate}
+                          onChange={(e) => setGradeRate(e.target.value.toUpperCase())}
+                          className="w-full bg-white border-2 border-slate-950 p-2.5 text-xs font-black text-slate-900 outline-none uppercase"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1.5 font-space">
+                          Examination Verdict
+                        </label>
+                        <select
+                          value={gradeVerdict}
+                          onChange={(e) => setGradeVerdict(e.target.value as "PASS" | "FAIL font-bold")}
+                          className="w-full bg-white border-2 border-slate-950 p-2.5 text-xs font-black text-slate-900 outline-none rounded-none cursor-pointer"
+                        >
+                          <option value="PASS">PASS (AWARD PROMOTION)</option>
+                          <option value="FAIL">FAIL (SUGGEST REVAL)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1.5 font-space">
+                          Payment Verification Status
+                        </label>
+                        <div className={`p-2.5 border-2 text-[11px] font-black text-center uppercase tracking-wide ${selectedRegForGrading.FEES_STATUS === "PAID" ? "bg-emerald-950 border-emerald-600 text-emerald-400" : "bg-red-950 border-red-700 text-red-400"}`}>
+                          {selectedRegForGrading.FEES_STATUS}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-stone-400 uppercase tracking-widest mb-1.5 font-space">
+                        CONGRATULATION MESSAGE / INSTRUCTOR ASSESSMENT COMMENTS
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="E.G. EXCELLENT FORMS OF HEIAN SHODAN"
+                        value={gradeCongratsMsg}
+                        onChange={(e) => setGradeCongratsMsg(e.target.value.toUpperCase())}
+                        className="w-full bg-white border-2 border-slate-950 p-2.5 text-xs font-bold text-slate-900 placeholder-slate-400 outline-none uppercase"
+                      />
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRegForGrading(null)}
+                        className="flex-1 py-3 bg-slate-800 text-white border border-slate-700 hover:bg-slate-705 font-black uppercase text-xs tracking-widest cursor-pointer rounded-none transition"
+                      >
+                        CANCEL
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={gradeSubmitLoading}
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-xs tracking-widest cursor-pointer rounded-none border border-emerald-700 transition"
+                      >
+                        {gradeSubmitLoading ? "PUBLISHING CERTIFICATE..." : "GRADE & REGISTER CERTIFICATE"}
+                      </button>
+                    </div>
+
+                    {gradeError && (
+                      <div className="mt-3 p-3 bg-red-950 border border-red-700 text-red-200 text-xs font-black uppercase rounded-none animate-shake flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                        <span>{gradeError}</span>
+                      </div>
+                    )}
+                  </form>
+                </div>
+              )}
+
+              {/* Roster / Table of registrations */}
+              <div className="bg-white border-2 border-slate-900 p-6 shadow-[6px_6px_0px_0px_rgba(15,23,42,1)] rounded-none">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5 pb-3 border-b-2 border-slate-900">
+                  <div className="flex items-center gap-2.5">
+                    <ClipboardList className="text-red-700 h-5 w-5" />
+                    <h3 className="font-black text-xs tracking-widest text-slate-950 uppercase font-space">
+                      B. Active Online Submitted Registrations ({registrations.filter(r => r.STATUS !== "GRADED").length} PENDING)
+                    </h3>
+                  </div>
+                  <button
+                    onClick={fetchRegistrations}
+                    className="text-[10px] font-black tracking-widest font-space uppercase py-1 px-2.5 bg-slate-50 border border-slate-900 hover:bg-slate-100 cursor-pointer"
+                  >
+                    Refresh List
+                  </button>
+                </div>
+
+                {regListLoading ? (
+                  <div className="text-center py-12 text-xs font-black tracking-widest uppercase text-slate-400">
+                    <span className="animate-spin h-5 w-5 border-2 border-slate-900 border-t-transparent rounded-full inline-block mb-2"></span>
+                    <br />FETCHING RECENT WORKSPACE SUBMISSIONS...
+                  </div>
+                ) : registrations.length === 0 ? (
+                  <div className="text-center py-10 text-xs font-black tracking-widest uppercase text-slate-450 border border-dashed border-slate-200">
+                    No online candidate registrations found in public database log.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-slate-900 border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900 text-white text-[9px] font-black tracking-widest uppercase border border-slate-900">
+                          <th className="p-3">STUDENT NAME</th>
+                          <th className="p-3">RANKS (CURR &rarr; TARGET)</th>
+                          <th className="p-3">BRANCH / SCHOOL</th>
+                          <th className="p-3">FEES</th>
+                          <th className="p-3">EXAM CYCLE</th>
+                          <th className="p-3">STATUS / ACTION</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 border-x border-b border-slate-200 text-xs font-bold">
+                        {registrations.map((reg) => {
+                          const isGraded = reg.STATUS === "GRADED";
+                          return (
+                            <tr key={reg.id} className={`hover:bg-slate-50/55 ${isGraded ? "opacity-60 bg-slate-50/20" : ""}`}>
+                              <td className="p-3 uppercase">
+                                <div className="font-black text-slate-900">{reg.STUDENT_NAME}</div>
+                                <div className="text-[9px] text-slate-400 font-mono italic">Submitted: {reg.REGISTRATION_DATE}</div>
+                              </td>
+                              <td className="p-3 uppercase">
+                                <span className="text-stone-500">{reg.CURRENT_BELT}</span>
+                                <span className="mx-2 text-red-600 font-black">&rarr;</span>
+                                <span className="text-slate-900">{reg.APPEARING_BELT}</span>
+                              </td>
+                              <td className="p-3 uppercase text-[10px]">
+                                <div>Dojo: {reg.BRANCH_NAME}</div>
+                                <div className="text-slate-500 font-semibold text-[9px]">{reg.SCHOOL_NAME || "NO School Defined"}</div>
+                              </td>
+                              <td className="p-3">
+                                <span className={`text-[9px] font-black px-1.5 py-0.5 border ${
+                                  reg.FEES_STATUS === "PAID" 
+                                    ? "bg-emerald-50 border-emerald-450 text-emerald-700" 
+                                    : "bg-red-50 border-red-400 text-red-600"
+                                }`}>
+                                  {reg.FEES_STATUS}
+                                </span>
+                              </td>
+                              <td className="p-3 uppercase font-mono tracking-wider font-bold text-[10px]">
+                                {reg.EXAM_NAME}
+                              </td>
+                              <td className="p-3">
+                                {isGraded ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-slate-400 uppercase font-black tracking-widest">
+                                    <CheckCircle2 className="h-4 w-4 text-slate-300 shrink-0" /> GRADED
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleStartGrading(reg)}
+                                    type="button"
+                                    className="px-3 py-1.5 bg-red-650 hover:bg-slate-950 text-white font-black text-[10px] tracking-widest uppercase transition rounded-none cursor-pointer border border-slate-900 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                                  >
+                                    GRADE CANDIDATE
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {studentStatus && (
+            <div
+              className={`mt-4 p-4 border-2 text-xs font-bold uppercase rounded-none animate-fadeIn ${
+                studentStatus.success
+                  ? "bg-emerald-50 border-emerald-600 text-emerald-800"
+                  : "bg-red-50 border-red-600 text-red-700"
+              }`}
+            >
+              {studentStatus.message}
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Exporter Removed successfully as requested */}
     </div>
   );
 }
