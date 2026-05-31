@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Pillar 1: Default-deny catch-all rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common helper functions
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // Pillar 2: Validation schema for Exams
+    function isValidExam(data) {
+      return data.keys().hasAll(['EXAM_NAME', 'EXAM_DATE']) &&
+             data.keys().size() == 2 &&
+             data.EXAM_NAME is string && data.EXAM_NAME.size() >= 2 && data.EXAM_NAME.size() <= 64 &&
+             data.EXAM_DATE is string && data.EXAM_DATE.size() >= 8 && data.EXAM_DATE.size() <= 32;
+    }
+
+    // Pillar 2: Validation schema for Student Roster Results
+    function isValidResult(data) {
+      return data.keys().hasAll([
+               'STUDENT_NAME', 'EXAM_ID', 'CURRENT_BELT', 'ACHIEVED_BELT', 
+               'GRADE', 'RESULT', 'CONGRATULATION_MSG', 'EXAM_DATE', 'EXAM_NAME'
+             ]) &&
+             data.keys().size() == 9 &&
+             data.STUDENT_NAME is string && data.STUDENT_NAME.size() >= 2 && data.STUDENT_NAME.size() <= 128 &&
+             data.EXAM_ID is string && data.EXAM_ID.size() >= 2 && data.EXAM_ID.size() <= 64 &&
+             data.CURRENT_BELT is string && data.CURRENT_BELT.size() <= 64 &&
+             data.ACHIEVED_BELT is string && data.ACHIEVED_BELT.size() <= 64 &&
+             data.GRADE is string && data.GRADE.size() <= 64 &&
+             data.RESULT is string && (data.RESULT == 'PASS' || data.RESULT == 'FAIL') &&
+             data.CONGRATULATION_MSG is string && data.CONGRATULATION_MSG.size() <= 1024 &&
+             data.EXAM_DATE is string && data.EXAM_DATE.size() >= 8 && data.EXAM_DATE.size() <= 32 &&
+             data.EXAM_NAME is string && data.EXAM_NAME.size() >= 2 && data.EXAM_NAME.size() <= 64;
+    }
+
+    // Match rules for 'exams' collection
+    match /exams/{examId} {
+      allow read: if true;
+      allow create, update: if isValidId(examId) && isValidExam(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Match rules for 'results' collection
+    match /results/{resultId} {
+      allow read, list: if true;
+      allow create, update: if isValidId(resultId) && isValidResult(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

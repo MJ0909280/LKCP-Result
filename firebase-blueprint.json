@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "Exam": {
+      "title": "Exam",
+      "description": "Definition of a registered karate belt examination",
+      "type": "object",
+      "properties": {
+        "EXAM_NAME": {
+          "type": "string",
+          "description": "The unique capitalized exam code identifier e.g., MAY2026"
+        },
+        "EXAM_DATE": {
+          "type": "string",
+          "format": "date",
+          "description": "The date when the evaluation was conducted"
+        }
+      },
+      "required": ["EXAM_NAME", "EXAM_DATE"]
+    },
+    "StudentResult": {
+      "title": "StudentResult",
+      "description": "Belt exam evaluation result ledger entry for an individual candidate",
+      "type": "object",
+      "properties": {
+        "STUDENT_NAME": {
+          "type": "string",
+          "description": "The candidate's full capitalized name"
+        },
+        "EXAM_ID": {
+          "type": "string",
+          "description": "The unique digital evaluation roster identification credential"
+        },
+        "CURRENT_BELT": {
+          "type": "string",
+          "description": "Current status ranking color of the candidate before the exam"
+        },
+        "ACHIEVED_BELT": {
+          "type": "string",
+          "description": "Newly awarded belt color level status after promotion"
+        },
+        "GRADE": {
+          "type": "string",
+          "description": "Quality assessment score metric e.g., A+, EXCELLENT"
+        },
+        "RESULT": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"],
+          "description": "Official registry grading verdict"
+        },
+        "CONGRATULATION_MSG": {
+          "type": "string",
+          "description": "Specific comments or certificate signature note written by examiners"
+        },
+        "EXAM_DATE": {
+          "type": "string",
+          "format": "date",
+          "description": "The date the exam was registered"
+        },
+        "EXAM_NAME": {
+          "type": "string",
+          "description": "The name identifier of the linked exam folder"
+        }
+      },
+      "required": [
+        "STUDENT_NAME",
+        "EXAM_ID",
+        "CURRENT_BELT",
+        "ACHIEVED_BELT",
+        "GRADE",
+        "RESULT",
+        "CONGRATULATION_MSG",
+        "EXAM_DATE",
+        "EXAM_NAME"
+      ]
+    }
+  },
+  "firestore": {
+    "exams": {
+      "schema": "Exam",
+      "description": "All registered belt examination target metadata"
+    },
+    "results": {
+      "schema": "StudentResult",
+      "description": "Detailed exam evaluation log entries for students cataloged by unique exam-ids and student names"
+    }
+  }
+}

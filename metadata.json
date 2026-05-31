@@ -1,0 +1,8 @@
+{
+  "name": "Lions Karate Club Pune",
+  "description": "The official digital belt examination registry and student lookup portal for Lions Karate Club Pune, powered by a live Firestore database backend.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
