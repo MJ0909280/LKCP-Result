@@ -104,14 +104,6 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-3 h-full">
-          <button
-            onClick={() => setShowInstallGuide(true)}
-            className="px-3 py-1.5 border-2 border-slate-900 text-[10px] font-black tracking-widest bg-amber-400 hover:bg-amber-500 text-slate-950 transition-colors cursor-pointer uppercase shadow-[2.5px_2.5px_0px_0px_rgba(15,23,42,1)] flex items-center gap-1.5"
-          >
-            <Smartphone className="h-3.5 w-3.5 shrink-0 animate-pulse" />
-            <span className="hidden xs:inline">Install App</span>
-            <span className="xs:hidden">Install</span>
-          </button>
 
           <div className="hidden md:flex h-full items-center border-r border-slate-200 pr-6 mr-3">
             <span className="text-[11px] font-black tracking-widest text-slate-400 uppercase">EXAM PORTAL V2.4</span>

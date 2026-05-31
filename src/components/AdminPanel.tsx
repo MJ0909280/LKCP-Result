@@ -392,9 +392,6 @@ export default function AdminPanel({ onSignOut }: AdminPanelProps) {
 
               {generatedLink && (
                 <div className="mt-4 space-y-2">
-                  <div className="bg-amber-100 border-2 border-amber-600 p-3 text-[10px] md:text-[11px] font-black text-amber-950 leading-relaxed uppercase rounded-none shadow-[2px_2px_0px_0px_rgba(217,119,6,0.2)]">
-                    ⚠️ <span className="underline text-red-700">Mobile Sharing rule:</span> This is the official public portal link. Copy ONLY this link below or click "Copy URL" to send to WhatsApp. DO NOT share the "aistudio.google.com" link from your browser address bar - that is a private workspace and will fail with a 403 error on other phones!
-                  </div>
                   <div className="p-3 bg-slate-50 border-2 border-slate-900 rounded-none text-xs font-mono font-bold break-all text-slate-800">
                     {generatedLink}
                   </div>
